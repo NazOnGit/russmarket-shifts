@@ -6,6 +6,13 @@ import BaseIcon from './components/ui/BaseIcon.vue';
 import ScheduleGrid from './components/schedule/ScheduleGrid.vue';
 import ScheduleToolbar from './components/schedule/ScheduleToolbar.vue';
 import TemplatesPanel from './components/schedule/TemplatesPanel.vue';
+import { onMounted } from 'vue';
+import { useScheduleStore } from './stores/schedule';
+
+const store = useScheduleStore();
+
+// onMounted — «когда компонент появился на странице»: тогда и загружаем данные из API
+onMounted(() => store.init());
 </script>
 
 <template>
@@ -31,6 +38,10 @@ import TemplatesPanel from './components/schedule/TemplatesPanel.vue';
             <div class="flex items-start gap-3">
                 <section class="min-w-0 flex-1 rounded-2xl bg-white p-3">
                     <ScheduleToolbar />
+                    <p v-if="store.error" class="mt-3 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
+                        Не удалось загрузить данные: {{ store.error }}
+                    </p>
+                    <p v-else-if="store.loading && store.employees.length === 0" class="mt-3 px-3 text-sm text-ink-muted">Загрузка…</p>
                     <div class="mt-3">
                         <ScheduleGrid />
                     </div>

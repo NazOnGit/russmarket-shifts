@@ -1,12 +1,11 @@
 <script setup lang="ts">
+import { useScheduleStore } from '../../stores/schedule';
+import { shiftColors } from '../../utils/shiftColors';
+import { formatHours } from '../../utils/time';
 import BaseIcon from '../ui/BaseIcon.vue';
 
-// 2.1: временные данные. В 2.2 шаблоны придут из GET /api/shift-templates.
-const templates = [
-    { name: 'Утро', time: '07:00 - 15:00 · 8 ч', border: 'border-l-[#8fa9f5]' },
-    { name: 'День', time: '10:00 - 18:00 · 8 ч', border: 'border-l-[#a58cf5]' },
-    { name: 'Вечер', time: '15:00 - 23:00 · 8 ч', border: 'border-l-[#6fd3c3]' },
-];
+// Шаблоны приходят из GET /api/shift-templates через хранилище.
+const store = useScheduleStore();
 </script>
 
 <template>
@@ -14,13 +13,14 @@ const templates = [
         <h3 class="mb-3">Шаблоны смен</h3>
         <ul class="flex flex-col gap-2">
             <li
-                v-for="template in templates"
-                :key="template.name"
-                :class="['relative rounded-lg border-l-[3px] bg-page px-4 py-2.5', template.border]"
+                v-for="template in store.templates"
+                :key="template.id"
+                :class="['relative rounded-lg border-l-[3px] bg-page px-4 py-2.5', shiftColors[template.color].border]"
             >
                 <div class="font-medium">{{ template.name }}</div>
-                <div>{{ template.time }}</div>
-                <span class="absolute top-2 right-2 rounded bg-white px-1.5 text-[11px]">0</span>
+                <div>{{ template.start_time }} - {{ template.end_time }} · {{ formatHours(template.hours) }}</div>
+                <!-- Сколько раз шаблон использован в текущем периоде -->
+                <span class="absolute top-2 right-2 rounded bg-white px-1.5 text-[11px]">{{ store.templateUsage[template.id] ?? 0 }}</span>
             </li>
         </ul>
 
