@@ -4,9 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>График смен</title>
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet">
     @vite(['resources/css/app.css', 'resources/js/app.ts'])
 </head>
-<body class="bg-[#f3f4f8] text-[#1c1c1e] antialiased">
+<body class="bg-page font-sans text-ink antialiased">
     <div id="app"></div>
 </body>
 </html>
