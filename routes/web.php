@@ -2,6 +2,5 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+// Одна страница: Laravel отдаёт HTML-оболочку, дальше всё рисует Vue.
+Route::view('/', 'app');
