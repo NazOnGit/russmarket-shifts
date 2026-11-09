@@ -6,9 +6,11 @@
     <title>График смен</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet">
+    {{-- @vite подключает CSS и JS: в разработке — с dev-сервера Vite, на продакшене — из public/build --}}
     @vite(['resources/css/app.css', 'resources/js/app.ts'])
 </head>
 <body class="bg-page font-sans text-ink antialiased">
+    {{-- Сюда Vue «монтирует» всё приложение (см. resources/js/app.ts). Это единственный Blade-шаблон. --}}
     <div id="app"></div>
 </body>
 </html>

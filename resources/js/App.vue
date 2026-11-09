@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// Корневой компонент страницы «График». Он только раскладывает блоки по местам (сайдбар, шапка,
+// таблица, панель шаблонов); логика и данные живут в самих компонентах и в хранилище Pinia.
 import AppSidebar from './components/layout/AppSidebar.vue';
 import BaseIcon from './components/ui/BaseIcon.vue';
 import ScheduleGrid from './components/schedule/ScheduleGrid.vue';

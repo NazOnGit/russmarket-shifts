@@ -5,6 +5,8 @@ const employees = ['Кузнецова Алина', 'Волков Тимур', '
 </script>
 
 <template>
+    <!-- Обычная <table>: строки = сотрудники, колонки = дни. Таблица сама выравнивает колонки по ширине.
+         Шапка (thead) и строка «Покрытие» (tfoot) — sticky: остаются на месте при прокрутке списка. -->
     <div class="max-h-[600px] overflow-auto">
         <table class="w-full border-separate border-spacing-0 text-sm">
             <thead class="sticky top-0 z-10 bg-white">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Статичное меню из макета. Пункты не ведут на другие страницы — в задании одна страница «Смены».
 import BaseIcon from '../ui/BaseIcon.vue';
 </script>
 
