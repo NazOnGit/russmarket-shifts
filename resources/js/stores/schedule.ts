@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { api } from '../api';
 import type { Employee, Shift, ShiftTemplate } from '../types';
-import { addDays, daysBetween, startOfWeek, today } from '../utils/dates';
+import { addDays, addMonths, daysBetween, endOfMonth, monthLabel, startOfMonth, startOfWeek, today, weekLabel } from '../utils/dates';
 import { hoursBetween } from '../utils/time';
 
 /**
@@ -28,15 +28,48 @@ export const useScheduleStore = defineStore('schedule', () => {
     const templates = ref<ShiftTemplate[]>([]);
     const shifts = ref<Shift[]>([]); // смены текущего периода (черновик, пока не нажали «Сохранить»)
 
-    const periodStart = ref<string>(startOfWeek(today())); // понедельник отображаемой недели
+    // Режим отображения: 'week' — 7 колонок, 'month' — все дни месяца (переключатель «Месяц / Неделя»)
+    const view = ref<'week' | 'month'>('week');
+
+    // Первый день видимого периода: понедельник в режиме недели, 1-е число в режиме месяца
+    const periodStart = ref<string>(startOfWeek(today()));
+
+    // Текст из поля «Поиск по ФИО». v-model в ScheduleToolbar.vue записывает сюда каждую нажатую букву.
+    const search = ref('');
     const loading = ref(false);
     const error = ref<string | null>(null);
 
     // ---------- Вычисляемые значения ----------
-    const periodEnd = computed(() => addDays(periodStart.value, 6));
+    // Последний день периода.
+    // Неделя: 2026-11-09 + 6 дней = 2026-11-15. Месяц: 2026-11-01 → 2026-11-30.
+    const periodEnd = computed(() =>
+        view.value === 'week' ? addDays(periodStart.value, 6) : endOfMonth(periodStart.value),
+    );
 
-    // Колонки таблицы: 7 дней недели
+    // Колонки таблицы: 7 дней недели или 28–31 день месяца
     const days = computed(() => daysBetween(periodStart.value, periodEnd.value));
+
+    // Подпись между стрелками: «9 – 15 ноября 2026» или «Ноябрь 2026»
+    const periodLabel = computed(() =>
+        view.value === 'week' ? weekLabel(periodStart.value, periodEnd.value) : monthLabel(periodStart.value),
+    );
+
+    // Сотрудники, которые подходят под поиск. Таблица рисует именно этот список, а не все employees.
+    //
+    // Пример: search = "вол" → query = "вол"
+    //   "Кузнецова Алина".toLowerCase() содержит "вол"? нет → скрыть
+    //   "Волков Тимур".toLowerCase() = "волков тимур" содержит "вол"? да → показать
+    // replace(/ё/g, 'е') — чтобы «Артем» находил «Соколов Артём».
+    //
+    // Поиск идёт в браузере по уже загруженному списку: сотрудников мало, запрос к серверу не нужен,
+    // и смены скрытых сотрудников не теряются — они остаются в shifts и в покрытии.
+    const visibleEmployees = computed(() => {
+        const query = normalize(search.value.trim());
+        if (query === '') {
+            return employees.value;
+        }
+        return employees.value.filter((employee) => normalize(employee.full_name).includes(query));
+    });
 
     // Быстрый поиск смены по ячейке: ключ "id сотрудника|дата" -> смена.
     // Map вместо перебора массива для каждой из 56+ ячеек.
@@ -92,6 +125,10 @@ export const useScheduleStore = defineStore('schedule', () => {
     const templateById = computed(() => new Map(templates.value.map((template) => [template.id, template])));
 
     // ---------- Действия ----------
+    function normalize(text: string): string {
+        return text.toLowerCase().replace(/ё/g, 'е');
+    }
+
     function cellKey(employeeId: number, date: string): string {
         return `${employeeId}|${date}`;
     }
@@ -110,9 +147,49 @@ export const useScheduleStore = defineStore('schedule', () => {
         });
     }
 
-    // Загрузить смены отображаемого периода (повторно вызывается при смене недели — этап 2.3)
+    // ---------- Навигация по датам (стрелки ‹ ›, «Сегодня», «Месяц / Неделя») ----------
+    //
+    // Каждое действие меняет periodStart (и view), после чего загружаем смены нового периода.
+    // Пример: неделя 9–15 ноября, нажали › → periodStart = "2026-11-16"
+    //   → periodEnd пересчитался в "2026-11-22" (computed) → days тоже → таблица перестроилась
+    //   → loadShifts() запрашивает GET /api/shifts?from=2026-11-16&to=2026-11-22.
+
+    // direction: -1 = назад (‹), 1 = вперёд (›)
+    async function move(direction: -1 | 1): Promise<void> {
+        periodStart.value = view.value === 'week'
+            ? addDays(periodStart.value, 7 * direction)
+            : addMonths(periodStart.value, direction);
+        await run(loadShifts);
+    }
+
+    async function goToday(): Promise<void> {
+        periodStart.value = view.value === 'week' ? startOfWeek(today()) : startOfMonth(today());
+        await run(loadShifts);
+    }
+
+    // Переключатель «Месяц / Неделя». Остаёмся рядом с той же датой:
+    // неделя 9–15 ноября → месяц «Ноябрь»; месяц «Ноябрь» → первая неделя ноября (с понедельника).
+    async function setView(newView: 'week' | 'month'): Promise<void> {
+        if (newView === view.value) {
+            return;
+        }
+        view.value = newView;
+        periodStart.value = newView === 'week' ? startOfWeek(periodStart.value) : startOfMonth(periodStart.value);
+        await run(loadShifts);
+    }
+
+    // Загрузить смены отображаемого периода: при открытии страницы и после каждой навигации
+    //
+    // Защита от «гонки» запросов: быстро нажали › два раза → ушло два запроса (неделя 16–22 и 23–29).
+    // Если ответ на первый придёт позже второго, он перезаписал бы таблицу не той неделей.
+    // Поэтому каждому запросу даём номер и принимаем ответ, только если он от последнего запроса.
+    let latestRequest = 0;
     async function loadShifts(): Promise<void> {
+        const requestNumber = ++latestRequest;
         const loaded = await api.shifts(periodStart.value, periodEnd.value);
+        if (requestNumber !== latestRequest) {
+            return; // пришёл устаревший ответ — игнорируем
+        }
         // Оставляем только поля, которые отправим обратно при сохранении
         shifts.value = loaded.map(({ employee_id, date, start_time, end_time, shift_template_id }) => ({
             employee_id,
@@ -140,8 +217,12 @@ export const useScheduleStore = defineStore('schedule', () => {
         employees,
         templates,
         shifts,
+        view,
         periodStart,
         periodEnd,
+        periodLabel,
+        search,
+        visibleEmployees,
         loading,
         error,
         days,
@@ -151,5 +232,8 @@ export const useScheduleStore = defineStore('schedule', () => {
         templateById,
         shiftAt,
         init,
+        move,
+        goToday,
+        setView,
     };
 });

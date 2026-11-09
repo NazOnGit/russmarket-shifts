@@ -52,3 +52,46 @@ export function daysBetween(from: string, to: string): CalendarDay[] {
     }
     return days;
 }
+
+// ---------- Месяц и подписи периода (этап 2.3) ----------
+
+// Родительный падеж — для подписи недели: «9 – 15 ноября 2026»
+const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+// Именительный падеж — для подписи месяца: «Ноябрь 2026»
+const MONTHS_NOMINATIVE = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+// "2026-11-18" → "2026-11-01"
+export function startOfMonth(iso: string): string {
+    return iso.slice(0, 8) + '01';
+}
+
+// "2026-11-18" → "2026-11-30".
+// new Date(год, месяц + 1, 0) — «нулевой» день следующего месяца = последний день текущего.
+export function endOfMonth(iso: string): string {
+    const date = parseIso(iso);
+    return toIso(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+// "2026-11-18", +1 → "2026-12-01" (первое число соседнего месяца)
+export function addMonths(iso: string, months: number): string {
+    const date = parseIso(startOfMonth(iso));
+    return toIso(new Date(date.getFullYear(), date.getMonth() + months, 1));
+}
+
+// Подпись над таблицей.
+// Неделя в одном месяце:  "9 – 15 ноября 2026"
+// Неделя на стыке месяцев: "30 ноября – 6 декабря 2026"
+export function weekLabel(from: string, to: string): string {
+    const start = parseIso(from);
+    const end = parseIso(to);
+    const startText = start.getMonth() === end.getMonth()
+        ? `${start.getDate()}`
+        : `${start.getDate()} ${MONTHS_GENITIVE[start.getMonth()]}`;
+    return `${startText} – ${end.getDate()} ${MONTHS_GENITIVE[end.getMonth()]} ${end.getFullYear()}`;
+}
+
+// "2026-11-01" → "Ноябрь 2026"
+export function monthLabel(iso: string): string {
+    const date = parseIso(iso);
+    return `${MONTHS_NOMINATIVE[date.getMonth()]} ${date.getFullYear()}`;
+}
