@@ -1,5 +1,11 @@
 <?php
 
+// ЗА ЧТО ОТВЕЧАЕТ ЭТОТ КЛАСС?
+//
+// Превращает шаблон в JSON для панели «Шаблоны смен»:
+// { "id": 1, "name": "Утро", "start_time": "07:00", "end_time": "15:00", "hours": 8, "color": "blue" }
+// hours нет в таблице — считаем на лету через Shift::hoursBetween().
+
 namespace App\Http\Resources;
 
 use App\Models\Shift;

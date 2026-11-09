@@ -1,5 +1,13 @@
 <?php
 
+// ЗА ЧТО ОТВЕЧАЕТ ЭТА МОДЕЛЬ?
+//
+// Shift — класс для таблицы shifts. Одна строка = одна смена = одна ячейка календаря
+// на пересечении сотрудника и даты:
+//   id | employee_id | date       | start_time | end_time | shift_template_id | published_at
+//   1  | 1           | 2026-11-10 | 10:00      | 18:00    | 2 (День)          | null (черновик)
+//   9  | 5           | 2026-11-13 | 10:00      | 23:00    | null (своя смена) | null
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -7,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Shift extends Model
 {
+    // $fillable — какие колонки разрешено заполнять через Shift::create([...]).
+    // Остальные поля (например id) из массива будут проигнорированы — защита от «лишних» данных.
     protected $fillable = ['employee_id', 'date', 'start_time', 'end_time', 'shift_template_id', 'published_at'];
 
     protected function casts(): array
@@ -17,6 +27,7 @@ class Shift extends Model
         ];
     }
 
+    // Связь: смена принадлежит сотруднику. $shift->employee → объект Employee по shifts.employee_id = employees.id
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
@@ -28,8 +39,16 @@ class Shift extends Model
     }
 
     /**
-     * Длительность смены в часах. Если конец раньше начала (22:00 - 06:00),
-     * смена переходит через полночь, поэтому добавляем 24 часа.
+     * Длительность смены в часах.
+     *
+     * Переводим время в минуты от начала суток: "07:00" → 420, "15:00" → 900.
+     * 900 - 420 = 480 минут = 8 часов.
+     *
+     * Ночная смена: "22:00" → 1320, "06:00" → 360. 360 - 1320 = -960 (отрицательно —
+     * значит конец уже на следующий день) → добавляем 24 часа (1440 минут): -960 + 1440 = 480 = 8 часов.
+     *
+     * static — вызывается без объекта: Shift::hoursBetween('07:00', '15:00').
+     * Нужна и для смен, и для шаблонов (ShiftTemplateResource).
      */
     public static function hoursBetween(string $start, string $end): float
     {

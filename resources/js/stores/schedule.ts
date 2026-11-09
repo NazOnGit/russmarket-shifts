@@ -6,7 +6,14 @@ import { addDays, daysBetween, startOfWeek, today } from '../utils/dates';
 import { hoursBetween } from '../utils/time';
 
 /**
+ * ЗА ЧТО ОТВЕЧАЕТ ЭТОТ ФАЙЛ?
+ *
  * Хранилище страницы «График» (Pinia).
+ *
+ * Путь данных при открытии страницы:
+ * App.vue (onMounted) → store.init() → api.employees() / api.templates() / api.shifts(from, to)
+ * → Laravel отдаёт JSON → кладём в employees / templates / shifts
+ * → ScheduleGrid.vue и TemplatesPanel.vue читают store.* и рисуют таблицу.
  *
  * Здесь лежат ВСЕ данные страницы: сотрудники, шаблоны, смены выбранного периода.
  * Компоненты (таблица, строка покрытия, панель шаблонов) читают данные отсюда,
@@ -41,7 +48,18 @@ export const useScheduleStore = defineStore('schedule', () => {
         return map;
     });
 
-    // Покрытие: сколько смен назначено на каждую дату
+    // Покрытие: сколько смен назначено на каждую дату (нижняя строка таблицы «Покрытие»).
+    //
+    // Пример: shifts =
+    //   { employee_id: 1, date: "2026-11-10", ... }
+    //   { employee_id: 2, date: "2026-11-10", ... }
+    //   { employee_id: 1, date: "2026-11-11", ... }
+    // Проходим по сменам и прибавляем 1 к счётчику их даты:
+    //   coverageByDate = { "2026-11-10": 2, "2026-11-11": 1 }
+    // Даты без смен в объекте нет → таблица показывает 0 (розовым).
+    //
+    // computed: когда в shifts добавится или удалится смена, Vue сам пересчитает этот объект
+    // и перерисует строку покрытия. Отдельного кода «обнови покрытие» нет.
     const coverageByDate = computed(() => {
         const counts: Record<string, number> = {};
         for (const shift of shifts.value) {
@@ -50,7 +68,8 @@ export const useScheduleStore = defineStore('schedule', () => {
         return counts;
     });
 
-    // Часы сотрудника за период — «агент · 16 ч» под именем
+    // Часы сотрудника за период — «агент · 16 ч» под именем.
+    // Пример: у сотрудника 1 две смены 10:00–18:00 → hoursByEmployee = { 1: 16 }
     const hoursByEmployee = computed(() => {
         const hours: Record<number, number> = {};
         for (const shift of shifts.value) {

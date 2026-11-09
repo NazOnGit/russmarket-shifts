@@ -1,6 +1,17 @@
 import type { Employee, Shift, ShiftFromApi, ShiftTemplate } from './types';
 
-// Единственное место, где фронтенд обращается к Laravel. Компоненты и store не пишут fetch() сами.
+// ЗА ЧТО ОТВЕЧАЕТ ЭТОТ ФАЙЛ?
+//
+// Это единственное место, где фронтенд разговаривает с Laravel. Компоненты и хранилище
+// не пишут fetch() сами — они вызывают api.employees(), api.shifts(...) и т.д.
+// Если адрес API поменяется, править нужно только здесь.
+//
+// Путь одного запроса:
+// хранилище вызывает api.employees()
+// → request('GET', '/employees') → fetch('/api/employees') — браузер отправляет HTTP-запрос
+// → Laravel: routes/api.php → EmployeeController::index() → JSON
+// → response.json() превращает текст ответа в JS-объект { data: [...] }
+// → api.employees() возвращает массив из data.
 
 export class ApiError extends Error {
     constructor(
@@ -11,6 +22,9 @@ export class ApiError extends Error {
     }
 }
 
+// Общая функция для всех запросов.
+// <T> — «тип ответа подставим при вызове»: request<Collection<Employee>> вернёт { data: Employee[] }.
+// async — функция ждёт ответа сервера (await), не замораживая страницу.
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
     const response = await fetch(`/api${url}`, {
         method,
@@ -19,6 +33,8 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     });
 
     const json = await response.json().catch(() => ({}));
+    // response.ok = false, если статус не 2xx: например 422 (ошибка валидации) или 500.
+    // Тогда бросаем ApiError с текстом от Laravel, хранилище поймает его и покажет плашку с ошибкой.
     if (!response.ok) {
         throw new ApiError(json.message ?? `Ошибка сервера (${response.status})`, json.errors);
     }

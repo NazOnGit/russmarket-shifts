@@ -11,7 +11,8 @@ import { useScheduleStore } from './stores/schedule';
 
 const store = useScheduleStore();
 
-// onMounted — «когда компонент появился на странице»: тогда и загружаем данные из API
+// onMounted — «когда компонент появился на странице»: тогда и загружаем данные из API.
+// store.init() → три запроса к Laravel (сотрудники, шаблоны, смены недели) → данные в хранилище → таблица рисуется.
 onMounted(() => store.init());
 </script>
 

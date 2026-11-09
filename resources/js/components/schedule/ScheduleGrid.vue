@@ -3,7 +3,14 @@ import { useScheduleStore } from '../../stores/schedule';
 import { formatHours } from '../../utils/time';
 import ShiftCard from './ShiftCard.vue';
 
-// Таблица графика. Своих данных у компонента нет — всё читается из хранилища.
+// ЗА ЧТО ОТВЕЧАЕТ ЭТОТ КОМПОНЕНТ?
+//
+// Рисует таблицу графика: строки = сотрудники, колонки = дни, внизу строка «Покрытие».
+// Своих данных у компонента нет — всё читается из хранилища (stores/schedule.ts):
+//   store.days            → колонки («пн 9», «вт 10», ...)
+//   store.employees       → строки
+//   store.shiftAt(id, д.) → смена в ячейке или undefined (тогда пустая пунктирная рамка)
+//   store.coverageByDate  → числа в строке «Покрытие»
 const store = useScheduleStore();
 
 // "Кузнецова Алина" -> "КА" для аватара
@@ -50,7 +57,10 @@ function initials(fullName: string): string {
                         </div>
                     </td>
 
-                    <!-- Ячейка на пересечении сотрудника и даты: смена или пустая пунктирная рамка -->
+                    <!-- Ячейка на пересечении сотрудника и даты.
+                         Пример: employee.id = 1, day.iso = "2026-11-10" → store.shiftAt(1, "2026-11-10")
+                         нашла смену 10:00–18:00 → v-if истинно → рисуем ShiftCard (фиолетовая карточка «10 - 18 / 8 ч»).
+                         Не нашла → v-else → пустая пунктирная рамка. -->
                     <td v-for="day in store.days" :key="day.iso" class="p-1">
                         <div class="h-14">
                             <ShiftCard v-if="store.shiftAt(employee.id, day.iso)" :shift="store.shiftAt(employee.id, day.iso)!" />
