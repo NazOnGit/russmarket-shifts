@@ -36,11 +36,13 @@ function cancel(): void {
 </script>
 
 <template>
+    <!-- whitespace-normal: ячейка шапки запрещает перенос строк (whitespace-nowrap), меню это наследовало бы
+         и кнопки встали бы в одну строку. block — каждая кнопка на своей строке. -->
     <!-- Прозрачный слой на весь экран: клик мимо меню закрывает его и снимает выделение столбца -->
     <div class="fixed inset-0 z-30 cursor-default" @click.stop="cancel"></div>
 
     <div
-        :class="['absolute top-full z-40 mt-1 w-64 rounded-xl bg-white p-2 text-left text-sm font-normal text-ink shadow-lg ring-1 ring-line', alignRight ? 'right-0' : 'left-0']"
+        :class="['absolute top-full z-40 mt-1 w-64 rounded-xl bg-white p-2 text-left text-sm font-normal whitespace-normal text-ink shadow-lg ring-1 ring-line', alignRight ? 'right-0' : 'left-0']"
         @mousedown.stop
         @click.stop
     >
@@ -55,14 +57,14 @@ function cancel(): void {
             v-for="template in store.templates"
             :key="template.id"
             type="button"
-            :class="['mb-1 w-full rounded-lg border-l-[3px] bg-page px-3 py-2 text-left hover:ring-2 hover:ring-primary/40', shiftColors[template.color].border]"
+            :class="['mb-1 block w-full rounded-lg border-l-[3px] bg-page px-3 py-2 text-left hover:ring-2 hover:ring-primary/40', shiftColors[template.color].border]"
             @click="choose(template.id)"
         >
             <span class="font-medium">{{ template.name }}</span>
             <span class="ml-2 text-ink-muted">{{ template.start_time }} – {{ template.end_time }}</span>
         </button>
 
-        <button type="button" class="mt-1 w-full rounded-lg px-3 py-2 text-left text-danger hover:bg-danger-soft" @click="clearDay">
+        <button type="button" class="mt-1 block w-full rounded-lg px-3 py-2 text-left text-danger hover:bg-danger-soft" @click="clearDay">
             Очистить день
         </button>
     </div>
