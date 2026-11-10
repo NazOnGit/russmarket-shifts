@@ -5,6 +5,7 @@ import AppSidebar from './components/layout/AppSidebar.vue';
 import BaseIcon from './components/ui/BaseIcon.vue';
 import ScheduleGrid from './components/schedule/ScheduleGrid.vue';
 import ScheduleToolbar from './components/schedule/ScheduleToolbar.vue';
+import SelectionBar from './components/schedule/SelectionBar.vue';
 import TemplatesPanel from './components/schedule/TemplatesPanel.vue';
 import { onMounted } from 'vue';
 import { useScheduleStore } from './stores/schedule';
@@ -38,7 +39,9 @@ onMounted(() => store.init());
 
             <div class="flex items-start gap-3">
                 <section class="min-w-0 flex-1 rounded-2xl bg-white p-3">
-                    <ScheduleToolbar />
+                    <!-- Есть выделенные ячейки → тёмная панель действий, иначе → поиск и навигация (как в макете) -->
+                    <SelectionBar v-if="store.selectionSummary.cells > 0" />
+                    <ScheduleToolbar v-else />
                     <p v-if="store.error" class="mt-3 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
                         Не удалось загрузить данные: {{ store.error }}
                     </p>

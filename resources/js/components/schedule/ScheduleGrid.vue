@@ -8,14 +8,86 @@
 //   store.shiftAt(id, д.)  → смена в ячейке или undefined (тогда пустая пунктирная рамка)
 //   store.coverageByDate   → числа в строке «Покрытие»
 //   store.view             → 'week' или 'month': от него зависит ширина ячеек и вид смены
-import { computed } from 'vue';
+//   store.isSelected(...)  → выделена ли ячейка (синяя рамка и «+»)
+//
+// Выделение ячеек (этап 2.4):
+//   клик по ячейке            → выделить / снять одну ячейку (остальные выделения остаются)
+//   зажать мышь и протянуть   → выделить прямоугольник ячеек (сотрудники × дни)
+//   Esc                       → снять всё выделение
+import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useScheduleStore } from '../../stores/schedule';
 import { formatHours } from '../../utils/time';
+import BaseIcon from '../ui/BaseIcon.vue';
 import ShiftCard from './ShiftCard.vue';
 
 const store = useScheduleStore();
 
 const isMonth = computed(() => store.view === 'month');
+
+// ---------- Протягивание мышью ----------
+//
+// Координаты ячейки в таблице: row — номер строки (сотрудника), col — номер колонки (дня).
+// Пример: нажали мышь на (строка 0, колонка 1) = Алина, вт 10 и довели до (строка 1, колонка 2) = Тимур, ср 11
+// → выделяется прямоугольник: Алина вт, Алина ср, Тимур вт, Тимур ср (4 ячейки, как в макете).
+type CellPosition = { row: number; col: number };
+
+let dragStart: CellPosition | null = null; // где нажали мышь (null — мышь не нажата)
+let dragMoved = false; // мышь ушла в другую ячейку? нет → это обычный клик
+let selectionBeforeDrag = new Set<string>(); // что было выделено до начала протягивания
+
+function onCellMouseDown(event: MouseEvent, row: number, col: number): void {
+    if (event.button !== 0) {
+        return; // только левая кнопка мыши
+    }
+    event.preventDefault(); // не выделять текст в таблице, пока тянем мышь
+    dragStart = { row, col };
+    dragMoved = false;
+    selectionBeforeDrag = new Set(store.selectedCells);
+}
+
+function onCellMouseEnter(row: number, col: number): void {
+    if (dragStart === null) {
+        return; // мышь не зажата — просто навели курсор
+    }
+    dragMoved = true;
+
+    // Границы прямоугольника: от меньшего номера к большему, в какую бы сторону ни тянули
+    const rows = [Math.min(dragStart.row, row), Math.max(dragStart.row, row)] as const;
+    const cols = [Math.min(dragStart.col, col), Math.max(dragStart.col, col)] as const;
+
+    const keys = new Set(selectionBeforeDrag); // прямоугольник добавляется к прежнему выделению
+    for (let r = rows[0]; r <= rows[1]; r++) {
+        for (let c = cols[0]; c <= cols[1]; c++) {
+            keys.add(store.cellKey(store.visibleEmployees[r]!.id, store.days[c]!.iso));
+        }
+    }
+    store.setSelection(keys);
+}
+
+// Кнопку мыши отпустили где угодно на странице (поэтому слушаем window, а не ячейку)
+function onMouseUp(): void {
+    if (dragStart !== null && !dragMoved) {
+        // Мышь не двигалась между ячейками → это клик: переключаем одну ячейку
+        store.toggleCell(store.visibleEmployees[dragStart.row]!.id, store.days[dragStart.col]!.iso);
+    }
+    dragStart = null;
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+        store.clearSelection();
+    }
+}
+
+// Подписываемся на события окна, когда таблица появилась, и отписываемся, когда она исчезает
+onMounted(() => {
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('keydown', onKeyDown);
+});
+onBeforeUnmount(() => {
+    window.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('keydown', onKeyDown);
+});
 
 // "Кузнецова Алина" -> "КА" для аватара
 function initials(fullName: string): string {
@@ -40,7 +112,7 @@ function rowBackground(index: number): string {
          Колонка «Сотрудник» — sticky слева: остаётся на месте, когда месяц прокручивают вправо.
          overflow-auto — если колонки не помещаются (месяц = 30 колонок), появляется горизонтальная прокрутка. -->
     <div class="max-h-[600px] overflow-auto">
-        <table class="w-full border-separate border-spacing-0 text-sm">
+        <table class="w-full border-separate border-spacing-0 text-sm select-none">
             <thead class="sticky top-0 z-20 bg-white">
                 <tr class="text-ink-muted">
                     <th class="sticky left-0 z-10 w-56 min-w-56 bg-white py-3 pl-3 text-left font-normal">Сотрудник</th>
@@ -77,14 +149,35 @@ function rowBackground(index: number): string {
                          Пример: employee.id = 1, day.iso = "2026-11-10" → store.shiftAt(1, "2026-11-10")
                          нашла смену 10:00–18:00 → v-if истинно → рисуем ShiftCard (фиолетовая карточка «10 - 18 / 8 ч»).
                          Не нашла → v-else → пустая пунктирная рамка. -->
-                    <td v-for="day in store.days" :key="day.iso" class="p-1">
-                        <div class="h-14">
+                    <!-- (dayIndex, index) — номера колонки и строки для протягивания мышью -->
+                    <td
+                        v-for="(day, dayIndex) in store.days"
+                        :key="day.iso"
+                        class="cursor-pointer p-1"
+                        @mousedown="onCellMouseDown($event, index, dayIndex)"
+                        @mouseenter="onCellMouseEnter(index, dayIndex)"
+                    >
+                        <div
+                            :class="[
+                                'h-14 rounded-lg',
+                                store.isSelected(employee.id, day.iso) && 'outline-2 outline-primary',
+                            ]"
+                        >
                             <ShiftCard
                                 v-if="store.shiftAt(employee.id, day.iso)"
                                 :shift="store.shiftAt(employee.id, day.iso)!"
                                 :compact="isMonth"
                             />
-                            <div v-else class="h-full rounded-lg border border-dashed border-line"></div>
+                            <!-- Выделенная пустая ячейка: голубой фон и синий «+», как в UI-ките «Ячейки таблицы» -->
+                            <div
+                                v-else-if="store.isSelected(employee.id, day.iso)"
+                                class="flex h-full items-center justify-center rounded-lg bg-primary-soft"
+                            >
+                                <span class="flex size-5 items-center justify-center rounded-full bg-primary text-white">
+                                    <BaseIcon name="plus" :size="12" />
+                                </span>
+                            </div>
+                            <div v-else class="h-full rounded-lg border border-dashed border-line hover:border-primary/50"></div>
                         </div>
                     </td>
                 </tr>

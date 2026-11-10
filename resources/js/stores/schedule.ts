@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { api } from '../api';
 import type { Employee, Shift, ShiftTemplate } from '../types';
 import { addDays, addMonths, daysBetween, endOfMonth, monthLabel, startOfMonth, startOfWeek, today, weekLabel } from '../utils/dates';
@@ -36,6 +36,10 @@ export const useScheduleStore = defineStore('schedule', () => {
 
     // Текст из поля «Поиск по ФИО». v-model в ScheduleToolbar.vue записывает сюда каждую нажатую букву.
     const search = ref('');
+    // Выделенные ячейки. Каждая ячейка — строка-ключ "id сотрудника|дата", например "1|2026-11-10".
+    // Set — набор без повторов: одну ячейку нельзя выделить дважды.
+    const selectedCells = ref(new Set<string>());
+
     const loading = ref(false);
     const error = ref<string | null>(null);
 
@@ -122,6 +126,20 @@ export const useScheduleStore = defineStore('schedule', () => {
         return usage;
     });
 
+    // Данные для тёмной панели «Выделено: 4 ячейки · 2 сотрудника(-ов) · 2 дн.»
+    // Пример: выделены "1|2026-11-10", "1|2026-11-11", "2|2026-11-10", "2|2026-11-11"
+    //   → ячеек 4, разных сотрудников {1, 2} = 2, разных дней {10, 11} = 2.
+    const selectionSummary = computed(() => {
+        const employeeIds = new Set<string>();
+        const dates = new Set<string>();
+        for (const key of selectedCells.value) {
+            const [employeeId, date] = key.split('|');
+            employeeIds.add(employeeId!);
+            dates.add(date!);
+        }
+        return { cells: selectedCells.value.size, employees: employeeIds.size, days: dates.size };
+    });
+
     const templateById = computed(() => new Map(templates.value.map((template) => [template.id, template])));
 
     // ---------- Действия ----------
@@ -146,6 +164,37 @@ export const useScheduleStore = defineStore('schedule', () => {
             await loadShifts();
         });
     }
+
+    // ---------- Выделение ячеек ----------
+
+    function isSelected(employeeId: number, date: string): boolean {
+        return selectedCells.value.has(cellKey(employeeId, date));
+    }
+
+    // Клик по ячейке: если не выделена — выделить, если выделена — снять. Остальные выделения остаются,
+    // поэтому можно собрать несколько отдельных ячеек у разных сотрудников (как в макете, кадр 5).
+    function toggleCell(employeeId: number, date: string): void {
+        const key = cellKey(employeeId, date);
+        if (selectedCells.value.has(key)) {
+            selectedCells.value.delete(key);
+        } else {
+            selectedCells.value.add(key);
+        }
+    }
+
+    // Заменить выделение целиком (используется при протягивании мышью — ScheduleGrid.vue)
+    function setSelection(keys: Iterable<string>): void {
+        selectedCells.value = new Set(keys);
+    }
+
+    // Кнопка «Снять» и клавиша Esc
+    function clearSelection(): void {
+        selectedCells.value = new Set();
+    }
+
+    // Если пользователь начал поиск, выделение снимаем: иначе действие применилось бы
+    // и к ячейкам сотрудников, которых сейчас не видно на экране.
+    watch(search, clearSelection);
 
     // ---------- Навигация по датам (стрелки ‹ ›, «Сегодня», «Месяц / Неделя») ----------
     //
@@ -185,6 +234,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     // Поэтому каждому запросу даём номер и принимаем ответ, только если он от последнего запроса.
     let latestRequest = 0;
     async function loadShifts(): Promise<void> {
+        clearSelection(); // при смене периода старые выделенные даты больше не видны
         const requestNumber = ++latestRequest;
         const loaded = await api.shifts(periodStart.value, periodEnd.value);
         if (requestNumber !== latestRequest) {
@@ -230,6 +280,13 @@ export const useScheduleStore = defineStore('schedule', () => {
         hoursByEmployee,
         templateUsage,
         templateById,
+        selectedCells,
+        selectionSummary,
+        isSelected,
+        toggleCell,
+        setSelection,
+        clearSelection,
+        cellKey,
         shiftAt,
         init,
         move,
