@@ -246,7 +246,13 @@ export const useScheduleStore = defineStore('schedule', () => {
     //   3) снимаем выделение
     // shifts изменился → покрытие, часы сотрудника и счётчики шаблонов пересчитаются сами (computed).
     function assignToSelected(startTime: string, endTime: string, templateId: number | null): void {
-        const keys = selectedCells.value;
+        assignToCells(selectedCells.value, startTime, endTime, templateId);
+        clearSelection();
+    }
+
+    // Общая «рабочая» функция: поставить смену в указанные ячейки (ключи "id|дата").
+    // Её вызывают и выделение (assignToSelected), и перетаскивание шаблона на ячейку (этап 2.7).
+    function assignToCells(keys: Set<string>, startTime: string, endTime: string, templateId: number | null): void {
         if (keys.size === 0) {
             return;
         }
@@ -264,7 +270,6 @@ export const useScheduleStore = defineStore('schedule', () => {
         });
 
         shifts.value = [...kept, ...added];
-        clearSelection();
     }
 
     // Шаблон → его время копируется в смену, а id шаблона сохраняется (для цвета и счётчика в панели)
@@ -273,6 +278,48 @@ export const useScheduleStore = defineStore('schedule', () => {
         if (template) {
             assignToSelected(template.start_time, template.end_time, template.id);
         }
+    }
+
+    // ---------- Быстрое назначение и перетаскивание (этап 2.7) ----------
+
+    // Клик по дате в шапке: выделить весь столбец этого дня (у сотрудников, видимых после поиска).
+    // Дальше меню быстрого выбора вызывает обычный applyTemplate() — та же логика, что и у панели выделения.
+    function selectDay(date: string): void {
+        setSelection(visibleEmployees.value.map((employee) => cellKey(employee.id, date)));
+    }
+
+    // Перетащили шаблон из правой панели на ячейку.
+    // Если ячейка входит в выделение — шаблон ставится во все выделенные ячейки, иначе только в эту.
+    function dropTemplate(templateId: number, employeeId: number, date: string): void {
+        const template = templateById.value.get(templateId);
+        if (!template) {
+            return;
+        }
+        const key = cellKey(employeeId, date);
+        const keys = selectedCells.value.has(key) ? selectedCells.value : new Set([key]);
+        assignToCells(keys, template.start_time, template.end_time, template.id);
+        clearSelection();
+    }
+
+    // Перетащили смену из одной ячейки в другую.
+    // copy = false — перенос (старая ячейка освобождается), copy = true (зажат Alt/Option) — копия.
+    // Если в целевой ячейке уже была смена — она заменяется (одна смена на ячейку).
+    //
+    // Пример: смена Алины на вт 10 (10–18) → перетащили на ячейку Новикова, пт 13
+    //   → у Новикова на пт 13 смена 10–18 с тем же шаблоном, у Алины на вт 10 пусто.
+    function moveShift(fromEmployeeId: number, fromDate: string, toEmployeeId: number, toDate: string, copy: boolean): void {
+        const source = shiftAt(fromEmployeeId, fromDate);
+        const fromKey = cellKey(fromEmployeeId, fromDate);
+        const toKey = cellKey(toEmployeeId, toDate);
+        if (!source || fromKey === toKey) {
+            return;
+        }
+        const remaining = shifts.value.filter((shift) => {
+            const key = cellKey(shift.employee_id, shift.date);
+            return key !== toKey && (copy || key !== fromKey);
+        });
+        shifts.value = [...remaining, { ...source, employee_id: toEmployeeId, date: toDate }];
+        clearSelection();
     }
 
     // «Очистить»: удалить смены в выделенных ячейках
@@ -438,7 +485,11 @@ export const useScheduleStore = defineStore('schedule', () => {
         clearSelection,
         cellKey,
         assignToSelected,
+        assignToCells,
         applyTemplate,
+        selectDay,
+        dropTemplate,
+        moveShift,
         clearSelectedShifts,
         shiftAt,
         init,

@@ -14,10 +14,16 @@
 //   клик по ячейке            → выделить / снять одну ячейку (остальные выделения остаются)
 //   зажать мышь и протянуть   → выделить прямоугольник ячеек (сотрудники × дни)
 //   Esc                       → снять всё выделение
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+//
+// Этап 2.7:
+//   клик по дате в шапке      → выделить столбец дня и открыть меню быстрого назначения (DayQuickMenu.vue)
+//   перетащить смену          → перенести в другую ячейку (с зажатым Alt/Option — скопировать)
+//   перетащить шаблон справа  → поставить его в ячейку (или во всё выделение, если ячейка выделена)
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useScheduleStore } from '../../stores/schedule';
 import { formatHours } from '../../utils/time';
 import BaseIcon from '../ui/BaseIcon.vue';
+import DayQuickMenu from './DayQuickMenu.vue';
 import ShiftCard from './ShiftCard.vue';
 
 const store = useScheduleStore();
@@ -39,7 +45,12 @@ function onCellMouseDown(event: MouseEvent, row: number, col: number): void {
     if (event.button !== 0) {
         return; // только левая кнопка мыши
     }
-    event.preventDefault(); // не выделять текст в таблице, пока тянем мышь
+    // На смене preventDefault НЕ вызываем: иначе браузер не начнёт перетаскивание смены (drag-and-drop).
+    // Если мышь просто отпустят — это клик и ячейка выделится как обычно (onMouseUp).
+    const onShift = (event.target as HTMLElement).closest('[data-shift]') !== null;
+    if (!onShift) {
+        event.preventDefault(); // не выделять текст в таблице, пока тянем мышь
+    }
     dragStart = { row, col };
     dragMoved = false;
     selectionBeforeDrag = new Set(store.selectedCells);
@@ -89,6 +100,62 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeyDown);
 });
 
+// ---------- Быстрое назначение по клику на дату (этап 2.7) ----------
+
+// Дата, для которой открыто меню, или null — меню закрыто
+const quickMenuDate = ref<string | null>(null);
+
+function openQuickMenu(date: string): void {
+    store.selectDay(date); // выделить весь столбец
+    quickMenuDate.value = date;
+}
+
+// ---------- Drag-and-drop (этап 2.7) ----------
+//
+// Используется встроенный в браузер HTML5 drag-and-drop:
+//   dragstart  — начали тянуть элемент с draggable="true"; кладём в dataTransfer, ЧТО тянем
+//   dragover   — тянем над ячейкой; preventDefault() говорит браузеру «сюда можно бросить»
+//   drop       — отпустили над ячейкой; читаем из dataTransfer, что принесли, и вызываем хранилище
+//
+// Что лежит в dataTransfer (строка JSON):
+//   смена из ячейки:   {"kind":"shift","employeeId":1,"date":"2026-11-10"}
+//   шаблон из панели:  {"kind":"template","templateId":2}   (кладёт TemplatesPanel.vue)
+type DragPayload = { kind: 'shift'; employeeId: number; date: string } | { kind: 'template'; templateId: number };
+
+const dropTarget = ref<string | null>(null); // ячейка, над которой сейчас тянут (подсветка)
+
+function onShiftDragStart(event: DragEvent, employeeId: number, date: string): void {
+    dragStart = null; // начали перетаскивать смену — это уже не выделение мышью
+    const payload: DragPayload = { kind: 'shift', employeeId, date };
+    event.dataTransfer?.setData('application/json', JSON.stringify(payload));
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copyMove';
+    }
+}
+
+function onCellDragOver(event: DragEvent, employeeId: number, date: string): void {
+    event.preventDefault(); // разрешить бросить сюда
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = event.altKey ? 'copy' : 'move';
+    }
+    dropTarget.value = store.cellKey(employeeId, date);
+}
+
+function onCellDrop(event: DragEvent, employeeId: number, date: string): void {
+    event.preventDefault();
+    dropTarget.value = null;
+    const raw = event.dataTransfer?.getData('application/json');
+    if (!raw) {
+        return;
+    }
+    const payload = JSON.parse(raw) as DragPayload;
+    if (payload.kind === 'shift') {
+        store.moveShift(payload.employeeId, payload.date, employeeId, date, event.altKey);
+    } else {
+        store.dropTemplate(payload.templateId, employeeId, date);
+    }
+}
+
 // "Кузнецова Алина" -> "КА" для аватара
 function initials(fullName: string): string {
     return fullName
@@ -117,13 +184,27 @@ function rowBackground(index: number): string {
                 <tr class="text-ink-muted">
                     <th class="sticky left-0 z-10 w-56 min-w-56 bg-white py-3 pl-3 text-left font-normal">Сотрудник</th>
                     <th
-                        v-for="day in store.days"
+                        v-for="(day, dayIndex) in store.days"
                         :key="day.iso"
-                        :class="['py-3 font-normal whitespace-nowrap', isMonth ? 'min-w-14 text-xs leading-tight' : 'min-w-18']"
+                        :class="['relative py-1.5 font-normal whitespace-nowrap', isMonth ? 'min-w-14 text-xs leading-tight' : 'min-w-18']"
                     >
-                        <!-- Неделя: «пн 9» в одну строку. Месяц: «пн» над «9», как в макете (кадр 12). -->
-                        <template v-if="isMonth">{{ day.weekday }}<br />{{ day.dayOfMonth }}</template>
-                        <template v-else>{{ day.weekday }} {{ day.dayOfMonth }}</template>
+                        <!-- Дата — кнопка: клик открывает меню быстрого назначения на этот день.
+                             Неделя: «пн 9» в одну строку. Месяц: «пн» над «9», как в макете (кадр 12). -->
+                        <button
+                            type="button"
+                            :class="['rounded-lg px-2 py-1.5 hover:bg-primary-soft hover:text-primary', quickMenuDate === day.iso && 'bg-primary-soft text-primary']"
+                            title="Быстрое назначение на этот день"
+                            @click="openQuickMenu(day.iso)"
+                        >
+                            <template v-if="isMonth">{{ day.weekday }}<br />{{ day.dayOfMonth }}</template>
+                            <template v-else>{{ day.weekday }} {{ day.dayOfMonth }}</template>
+                        </button>
+                        <DayQuickMenu
+                            v-if="quickMenuDate === day.iso"
+                            :day="day"
+                            :align-right="dayIndex >= store.days.length - 3"
+                            @close="quickMenuDate = null"
+                        />
                     </th>
                 </tr>
             </thead>
@@ -156,17 +237,27 @@ function rowBackground(index: number): string {
                         class="cursor-pointer p-1"
                         @mousedown="onCellMouseDown($event, index, dayIndex)"
                         @mouseenter="onCellMouseEnter(index, dayIndex)"
+                        @dragover="onCellDragOver($event, employee.id, day.iso)"
+                        @dragleave="dropTarget = null"
+                        @drop="onCellDrop($event, employee.id, day.iso)"
                     >
                         <div
                             :class="[
                                 'h-14 rounded-lg',
                                 store.isSelected(employee.id, day.iso) && 'outline-2 outline-primary',
+                                dropTarget === store.cellKey(employee.id, day.iso) && 'outline-2 outline-dashed outline-primary',
                             ]"
                         >
+                            <!-- draggable="true" — смену можно взять мышью и перетащить в другую ячейку -->
                             <ShiftCard
                                 v-if="store.shiftAt(employee.id, day.iso)"
                                 :shift="store.shiftAt(employee.id, day.iso)!"
                                 :compact="isMonth"
+                                data-shift
+                                draggable="true"
+                                class="cursor-grab active:cursor-grabbing"
+                                @dragstart="onShiftDragStart($event, employee.id, day.iso)"
+                                @dragend="dropTarget = null"
                             />
                             <!-- Выделенная пустая ячейка: голубой фон и синий «+», как в UI-ките «Ячейки таблицы» -->
                             <div

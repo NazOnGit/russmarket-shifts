@@ -41,4 +41,35 @@ describe('schedule store', () => {
         expect(store.shifts).toHaveLength(0);
         expect(store.coverageByDate['2026-11-10']).toBeUndefined(); // в таблице это «0»
     });
+
+    it('перетаскивание смены переносит её, а с Alt — копирует; занятая ячейка заменяется', () => {
+        store.moveShift(1, '2026-11-10', 2, '2026-11-12', false);
+        expect(store.shiftAt(1, '2026-11-10')).toBeUndefined();
+        expect(store.shiftAt(2, '2026-11-12')?.start_time).toBe('07:00');
+
+        store.moveShift(2, '2026-11-12', 3, '2026-11-12', true); // копия
+        expect(store.shiftAt(2, '2026-11-12')).toBeDefined();
+        expect(store.shiftAt(3, '2026-11-12')).toBeDefined();
+        expect(store.shifts).toHaveLength(2);
+    });
+
+    it('шаблон, брошенный на выделенную ячейку, ставится во всё выделение, на невыделенную — только в неё', () => {
+        store.toggleCell(5, '2026-11-13');
+        store.toggleCell(6, '2026-11-13');
+        store.dropTemplate(2, 5, '2026-11-13');
+        expect(store.coverageByDate['2026-11-13']).toBe(2);
+
+        store.dropTemplate(2, 7, '2026-11-14');
+        expect(store.coverageByDate['2026-11-14']).toBe(1);
+    });
+
+    it('клик по дате выделяет столбец видимых сотрудников', () => {
+        store.employees = [
+            { id: 1, full_name: 'Кузнецова Алина', position: 'агент' },
+            { id: 2, full_name: 'Волков Тимур', position: 'агент' },
+        ];
+        store.search = 'вол';
+        store.selectDay('2026-11-11');
+        expect([...store.selectedCells]).toEqual(['2|2026-11-11']);
+    });
 });

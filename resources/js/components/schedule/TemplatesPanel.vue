@@ -5,6 +5,7 @@
 // 1) «Шаблоны смен» — карточки из store.templates (GET /api/shift-templates).
 //    Цифра в углу = store.templateUsage: сколько раз шаблон стоит в видимом периоде.
 //    Клик по карточке → store.applyTemplate(id) → шаблон ставится во все выделенные ячейки.
+//    Карточку можно перетащить на ячейку таблицы (этап 2.7) → ScheduleGrid.vue → store.dropTemplate().
 // 2) «Своя смена» — произвольное время начала и конца.
 //    «Поставить в выделенные» → store.assignToSelected(начало, конец, null) — null значит «без шаблона».
 //
@@ -45,6 +46,15 @@ const customHint = computed(() => {
     return formatHours(hoursBetween(customStart.value, customEnd.value)) + overnight;
 });
 
+// Начали тянуть карточку шаблона: кладём в dataTransfer, какой шаблон тянем.
+// Ячейка таблицы прочитает это в onCellDrop() (ScheduleGrid.vue).
+function onTemplateDragStart(event: DragEvent, templateId: number): void {
+    event.dataTransfer?.setData('application/json', JSON.stringify({ kind: 'template', templateId }));
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+}
+
 function applyCustom(): void {
     if (customError.value === null) {
         store.assignToSelected(customStart.value, customEnd.value, null);
@@ -56,7 +66,15 @@ function applyCustom(): void {
     <aside class="w-80 shrink-0 rounded-2xl bg-white p-4 text-sm">
         <h3 class="mb-3">Шаблоны смен</h3>
         <ul class="flex flex-col gap-2">
-            <li v-for="template in store.templates" :key="template.id">
+            <!-- draggable на <li>, а не на кнопке: неактивную (disabled) кнопку браузер не даёт перетаскивать -->
+            <li
+                v-for="template in store.templates"
+                :key="template.id"
+                draggable="true"
+                class="cursor-grab active:cursor-grabbing"
+                title="Перетащите на ячейку таблицы"
+                @dragstart="onTemplateDragStart($event, template.id)"
+            >
                 <!-- Карточка — кнопка: при выделенных ячейках ставит шаблон, без выделения неактивна -->
                 <button
                     type="button"
@@ -65,7 +83,7 @@ function applyCustom(): void {
                     :class="[
                         'relative w-full rounded-lg border-l-[3px] bg-page px-4 py-2.5 text-left transition',
                         shiftColors[template.color].border,
-                        hasSelection ? 'cursor-pointer hover:ring-2 hover:ring-primary/40' : 'cursor-default',
+                        hasSelection ? 'cursor-pointer hover:ring-2 hover:ring-primary/40' : 'pointer-events-none',
                     ]"
                     @click="store.applyTemplate(template.id)"
                 >
@@ -76,7 +94,7 @@ function applyCustom(): void {
             </li>
         </ul>
         <p class="mt-2 text-xs text-ink-muted">
-            {{ hasSelection ? 'Нажмите на шаблон, чтобы поставить его в выделенные ячейки' : 'Выделите ячейки в таблице, затем выберите шаблон' }}
+            {{ hasSelection ? 'Нажмите на шаблон, чтобы поставить его в выделенные ячейки' : 'Выделите ячейки и выберите шаблон или перетащите шаблон на ячейку' }}
         </p>
 
         <h3 class="mt-6 mb-2">Своя смена</h3>
