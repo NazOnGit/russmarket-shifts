@@ -1,58 +1,86 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# График смен сотрудников
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Тестовое задание на позицию Fullstack-разработчика: страница создания рабочего графика сотрудников по макету Figma.
 
-## About Laravel
+**Демо:** https://nazongit.alwaysdata.net
+**Стек:** PHP 8.4 · Laravel 13 · SQLite · Vue 3 (Composition API, `<script setup>`) · TypeScript · Pinia · Tailwind CSS 4 · Vite
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Быстрый запуск
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Нужны PHP 8.3+, Composer и Node.js 20+. База — SQLite (файл), отдельный сервер БД не нужен.
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone https://github.com/NazOnGit/russmarket-shifts.git
+cd russmarket-shifts
+composer setup   # зависимости, .env, ключ, миграции + демо-данные, сборка фронтенда
+composer dev     # сервер Laravel + Vite → http://127.0.0.1:8000
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Тесты:
 
-## Contributing
+```bash
+php artisan test   # бэкенд: API, валидация, расчёт часов (PHPUnit)
+npm test           # фронтенд: логика хранилища, даты, время (Vitest)
+npm run typecheck  # проверка типов TypeScript
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## Что реализовано
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **Календарь** со списком сотрудников и назначенными сменами; режимы **«Неделя» / «Месяц»**, навигация ‹ › и «Сегодня».
+- **Поиск по ФИО** (без учёта регистра и ё/е).
+- **Выделение ячеек** кликом и протягиванием мыши; тёмная панель «Выделено: N ячеек · сотрудники · дни» с действиями «Применить шаблон», «Очистить», «Снять».
+- **Назначение смен** из шаблонов «Утро», «День», «Вечер» — через панель выделения или клик по карточке шаблона.
+- **Своя смена** — произвольное время (24 ч, ЧЧ:ММ) во все выделенные ячейки; смены через полночь (22:00–06:00) поддерживаются.
+- **Редактирование**: назначение в занятую ячейку заменяет смену, «Очистить» удаляет.
+- **Покрытие** по датам: 0 — розовый, ≥ 1 — голубой; пересчитывается сразу, без перезагрузки.
+- Часы сотрудника за период, счётчики использования шаблонов.
+- **«Сохранить»** — отправка смен периода в API с валидацией на сервере; **«Опубликовать»** — сохранение и отметка периода опубликованным; статус «Черновик / Опубликовано», предупреждение о несохранённых изменениях.
 
-## Security Vulnerabilities
+В работе: быстрое назначение по клику на дату в шапке, drag-and-drop.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
 
-## License
+## Как устроено
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```
+Браузер ── GET / ──▶ Laravel отдаёт одну HTML-страницу (resources/views/app.blade.php)
+                         │  @vite → resources/js/app.ts
+                         ▼
+          Vue 3 + TypeScript: компоненты + хранилище Pinia (stores/schedule.ts)
+                         │  fetch('/api/...') — JSON (resources/js/api.ts)
+                         ▼
+          Laravel API: routes/api.php → FormRequest (валидация) → Controller → Eloquent → SQLite
+```
+
+Изменения на странице — черновик в браузере (Pinia). Все способы назначения вызывают одну функцию хранилища `assignToSelected()`, поэтому работают с общими данными; покрытие, часы и счётчики — `computed`-значения и пересчитываются сами. «Сохранить» отправляет итоговое состояние периода одним запросом.
+
+### API
+
+| Метод | Адрес | Назначение |
+|---|---|---|
+| GET | `/api/employees` | сотрудники |
+| GET | `/api/shift-templates` | шаблоны смен |
+| GET | `/api/shifts?from=YYYY-MM-DD&to=YYYY-MM-DD` | смены периода (до 62 дней) |
+| PUT | `/api/shifts` | «Сохранить»: `{from, to, shifts[]}` — заменяет смены периода в транзакции |
+| POST | `/api/shifts/publish` | «Опубликовать»: `{from, to}` — проставляет `published_at` |
+
+Валидация (`app/Http/Requests/SyncShiftsRequest.php`): сотрудник и шаблон существуют, дата внутри периода, время `ЧЧ:ММ`, начало ≠ конец, не больше одной смены на ячейку (это же правило закреплено уникальным индексом `employee_id + date`).
+
+---
+
+## Допущения
+
+В макете не описано поведение некоторых элементов — принятые решения:
+
+- В ячейке (сотрудник + дата) одна смена.
+- «Опубликовать» не отправляет данные во внешние системы: у смен периода заполняется `published_at` (в реальной системе — момент, когда график видят сотрудники). Новое сохранение снова делает период черновиком.
+- Сохранение заменяет все смены видимого периода (просто и атомарно). Минус: у неизменённых смен меняется `id` и сбрасывается публикация; улучшение — сравнение по ключу «сотрудник + дата» и обновление только изменённых.
+- Время шаблона копируется в смену; `shift_template_id` хранится для цвета и счётчика.
+- Поиск фильтрует строки на клиенте; покрытие считается по всем сотрудникам, а не только по найденным.
+- В макете у «Вечер 15:00–23:00» подписано «9 ч» — часы считаются из времени, получается 8 ч.
+- Авторизации нет — в задании её не было.
+- Вёрстка под десктоп; на узких экранах таблица прокручивается.
