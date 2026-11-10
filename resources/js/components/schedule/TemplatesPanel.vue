@@ -49,7 +49,7 @@ const customHint = computed(() => {
 // Начали тянуть карточку шаблона: кладём в dataTransfer, какой шаблон тянем.
 // Ячейка таблицы прочитает это в onCellDrop() (ScheduleGrid.vue).
 function onTemplateDragStart(event: DragEvent, templateId: number): void {
-    event.dataTransfer?.setData('application/json', JSON.stringify({ kind: 'template', templateId }));
+    event.dataTransfer?.setData('text/plain', JSON.stringify({ kind: 'template', templateId }));
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'copy';
     }
@@ -66,31 +66,27 @@ function applyCustom(): void {
     <aside class="w-80 shrink-0 rounded-2xl bg-white p-4 text-sm">
         <h3 class="mb-3">Шаблоны смен</h3>
         <ul class="flex flex-col gap-2">
-            <!-- draggable на <li>, а не на кнопке: неактивную (disabled) кнопку браузер не даёт перетаскивать -->
-            <li
-                v-for="template in store.templates"
-                :key="template.id"
-                draggable="true"
-                class="cursor-grab active:cursor-grabbing"
-                title="Перетащите на ячейку таблицы"
-                @dragstart="onTemplateDragStart($event, template.id)"
-            >
-                <!-- Карточка — кнопка: при выделенных ячейках ставит шаблон, без выделения неактивна -->
-                <button
-                    type="button"
-                    :disabled="!hasSelection"
-                    :title="hasSelection ? 'Поставить в выделенные ячейки' : 'Сначала выделите ячейки в таблице'"
+            <!-- Карточка — блок с role="button", а не <button>: из <button> некоторые браузеры не начинают перетаскивание.
+                 Клик (или Enter) при выделенных ячейках ставит шаблон; карточку всегда можно перетащить на ячейку. -->
+            <li v-for="template in store.templates" :key="template.id">
+                <div
+                    role="button"
+                    tabindex="0"
+                    draggable="true"
+                    :title="hasSelection ? 'Нажмите, чтобы поставить в выделенные ячейки, или перетащите на ячейку' : 'Перетащите на ячейку таблицы или сначала выделите ячейки'"
                     :class="[
-                        'relative w-full rounded-lg border-l-[3px] bg-page px-4 py-2.5 text-left transition',
+                        'relative cursor-grab rounded-lg border-l-[3px] bg-page px-4 py-2.5 text-left transition select-none active:cursor-grabbing',
                         shiftColors[template.color].border,
-                        hasSelection ? 'cursor-pointer hover:ring-2 hover:ring-primary/40' : 'pointer-events-none',
+                        hasSelection && 'hover:ring-2 hover:ring-primary/40',
                     ]"
-                    @click="store.applyTemplate(template.id)"
+                    @click="hasSelection && store.applyTemplate(template.id)"
+                    @keydown.enter.prevent="hasSelection && store.applyTemplate(template.id)"
+                    @dragstart="onTemplateDragStart($event, template.id)"
                 >
                     <div class="font-medium">{{ template.name }}</div>
                     <div>{{ template.start_time }} - {{ template.end_time }} · {{ formatHours(template.hours) }}</div>
                     <span class="absolute top-2 right-2 rounded bg-white px-1.5 text-[11px]">{{ store.templateUsage[template.id] ?? 0 }}</span>
-                </button>
+                </div>
             </li>
         </ul>
         <p class="mt-2 text-xs text-ink-muted">

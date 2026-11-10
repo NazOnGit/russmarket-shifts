@@ -127,7 +127,8 @@ const dropTarget = ref<string | null>(null); // ячейка, над котор�
 function onShiftDragStart(event: DragEvent, employeeId: number, date: string): void {
     dragStart = null; // начали перетаскивать смену — это уже не выделение мышью
     const payload: DragPayload = { kind: 'shift', employeeId, date };
-    event.dataTransfer?.setData('application/json', JSON.stringify(payload));
+    // text/plain — этот тип данных все браузеры (в т. ч. Safari) надёжно передают при перетаскивании
+    event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'copyMove';
     }
@@ -136,19 +137,36 @@ function onShiftDragStart(event: DragEvent, employeeId: number, date: string): v
 function onCellDragOver(event: DragEvent, employeeId: number, date: string): void {
     event.preventDefault(); // разрешить бросить сюда
     if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = event.altKey ? 'copy' : 'move';
+        // dropEffect должен совпадать с тем, что разрешил источник (effectAllowed), иначе браузер молча отменит бросок:
+        // шаблон из панели разрешает только 'copy', смена из ячейки — 'copyMove' (перенос, с Alt — копия).
+        const copyOnly = event.dataTransfer.effectAllowed === 'copy';
+        event.dataTransfer.dropEffect = copyOnly || event.altKey ? 'copy' : 'move';
     }
     dropTarget.value = store.cellKey(employeeId, date);
+}
+
+// dragleave срабатывает и при переходе на дочерний элемент ячейки — снимаем подсветку,
+// только если курсор действительно ушёл за пределы ячейки
+function onCellDragLeave(event: DragEvent): void {
+    const cell = event.currentTarget as HTMLElement;
+    if (!cell.contains(event.relatedTarget as Node | null)) {
+        dropTarget.value = null;
+    }
 }
 
 function onCellDrop(event: DragEvent, employeeId: number, date: string): void {
     event.preventDefault();
     dropTarget.value = null;
-    const raw = event.dataTransfer?.getData('application/json');
+    const raw = event.dataTransfer?.getData('text/plain');
     if (!raw) {
         return;
     }
-    const payload = JSON.parse(raw) as DragPayload;
+    let payload: DragPayload;
+    try {
+        payload = JSON.parse(raw) as DragPayload; // бросили что-то чужое (например, текст) — игнорируем
+    } catch {
+        return;
+    }
     if (payload.kind === 'shift') {
         store.moveShift(payload.employeeId, payload.date, employeeId, date, event.altKey);
     } else {
@@ -238,7 +256,7 @@ function rowBackground(index: number): string {
                         @mousedown="onCellMouseDown($event, index, dayIndex)"
                         @mouseenter="onCellMouseEnter(index, dayIndex)"
                         @dragover="onCellDragOver($event, employee.id, day.iso)"
-                        @dragleave="dropTarget = null"
+                        @dragleave="onCellDragLeave($event)"
                         @drop="onCellDrop($event, employee.id, day.iso)"
                     >
                         <div
