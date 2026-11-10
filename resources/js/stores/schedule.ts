@@ -355,14 +355,28 @@ export const useScheduleStore = defineStore('schedule', () => {
         await run(loadShifts);
     }
 
-    // Переключатель «Месяц / Неделя». Остаёмся рядом с той же датой:
-    // неделя 9–15 ноября → месяц «Ноябрь»; месяц «Ноябрь» → первая неделя ноября (с понедельника).
+    // Переключатель «Месяц / Неделя».
+    // Неделя → месяц: показываем месяц той недели и запоминаем, какая неделя была открыта.
+    // Месяц → неделя: возвращаемся на запомненную неделю, если она входит в этот месяц;
+    // иначе (пользователь листал месяцы) — первая «полная» неделя месяца: та, где у месяца хотя бы 4 дня.
+    // Пример: неделя 9–15 ноября → «Месяц» (ноябрь) → «Неделя» → снова 9–15 ноября, а не 26 окт – 1 ноя.
+    let weekBeforeMonth: string | null = null;
+
     async function setView(newView: 'week' | 'month'): Promise<void> {
         if (newView === view.value || !confirmLeave()) {
             return;
         }
+        if (newView === 'month') {
+            weekBeforeMonth = periodStart.value;
+            periodStart.value = startOfMonth(addDays(periodStart.value, 3)); // месяц, к которому относится большая часть недели
+        } else {
+            const monthStart = periodStart.value;
+            const rememberedWeekInMonth =
+                weekBeforeMonth !== null &&
+                (startOfMonth(weekBeforeMonth) === monthStart || startOfMonth(addDays(weekBeforeMonth, 6)) === monthStart);
+            periodStart.value = rememberedWeekInMonth ? weekBeforeMonth! : startOfWeek(addDays(monthStart, 3));
+        }
         view.value = newView;
-        periodStart.value = newView === 'week' ? startOfWeek(periodStart.value) : startOfMonth(periodStart.value);
         await run(loadShifts);
     }
 

@@ -72,4 +72,21 @@ describe('schedule store', () => {
         store.selectDay('2026-11-11');
         expect([...store.selectedCells]).toEqual(['2|2026-11-11']);
     });
+
+    it('Неделя → Месяц → Неделя возвращает на ту же неделю, а после листания месяцев — на первую полную неделю', async () => {
+        // Сервера в тесте нет: загрузка смен упадёт, но хранилище перехватывает ошибку (run), а период уже переключён.
+        // Убираем смену из beforeEach: без несохранённых изменений confirm() не вызывается.
+        store.shifts = [];
+        store.periodStart = '2026-11-09';
+
+        await store.setView('month');
+        expect(store.periodStart).toBe('2026-11-01');
+        await store.setView('week');
+        expect(store.periodStart).toBe('2026-11-09');
+
+        await store.setView('month');
+        store.periodStart = '2027-02-01'; // как будто долистали до февраля (1 февраля 2027 — понедельник)
+        await store.setView('week');
+        expect(store.periodStart).toBe('2027-02-01');
+    });
 });
