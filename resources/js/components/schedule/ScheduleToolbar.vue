@@ -22,7 +22,7 @@ const viewOptions = [
 </script>
 
 <template>
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3 xl:flex-nowrap">
         <!-- v-model — двусторонняя связь: каждая нажатая буква сразу записывается в store.search,
              а если store.search поменять из кода, текст в поле тоже поменяется.
              Пример: ввели «вол» → store.search = "вол" → visibleEmployees = [Волков Тимур] → в таблице одна строка. -->

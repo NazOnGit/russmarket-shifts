@@ -196,6 +196,59 @@ export const useScheduleStore = defineStore('schedule', () => {
     // и к ячейкам сотрудников, которых сейчас не видно на экране.
     watch(search, clearSelection);
 
+    // ---------- Назначение и удаление смен (этап 2.5) ----------
+    //
+    // ВСЕ способы назначения сводятся к одной функции assignToSelected():
+    //   «Применить шаблон» в тёмной панели → applyTemplate(id) → assignToSelected(время шаблона, id)
+    //   клик по карточке шаблона справа    → applyTemplate(id) → assignToSelected(...)
+    //   «Своя смена» → «Поставить в выделенные» → assignToSelected("10:00", "23:00", null)
+    // Поэтому все способы работают с общими данными (требование задания).
+    //
+    // Изменения пока только в браузере (черновик). В базу их отправит кнопка «Сохранить» (этап 2.6).
+
+    // Пример: выделены "5|2026-11-12" (там уже смена 10–18) и "5|2026-11-13" (пусто),
+    // assignToSelected("10:00", "23:00", null):
+    //   1) убираем из shifts все смены выделенных ячеек → смена 10–18 у сотрудника 5 на 12-е удалена
+    //   2) добавляем по новой смене в каждую выделенную ячейку → 2 смены 10:00–23:00
+    //   3) снимаем выделение
+    // shifts изменился → покрытие, часы сотрудника и счётчики шаблонов пересчитаются сами (computed).
+    function assignToSelected(startTime: string, endTime: string, templateId: number | null): void {
+        const keys = selectedCells.value;
+        if (keys.size === 0) {
+            return;
+        }
+
+        const kept = shifts.value.filter((shift) => !keys.has(cellKey(shift.employee_id, shift.date)));
+        const added: Shift[] = [...keys].map((key) => {
+            const [employeeId, date] = key.split('|');
+            return {
+                employee_id: Number(employeeId),
+                date: date!,
+                start_time: startTime,
+                end_time: endTime,
+                shift_template_id: templateId,
+            };
+        });
+
+        shifts.value = [...kept, ...added];
+        clearSelection();
+    }
+
+    // Шаблон → его время копируется в смену, а id шаблона сохраняется (для цвета и счётчика в панели)
+    function applyTemplate(templateId: number): void {
+        const template = templateById.value.get(templateId);
+        if (template) {
+            assignToSelected(template.start_time, template.end_time, template.id);
+        }
+    }
+
+    // «Очистить»: удалить смены в выделенных ячейках
+    function clearSelectedShifts(): void {
+        const keys = selectedCells.value;
+        shifts.value = shifts.value.filter((shift) => !keys.has(cellKey(shift.employee_id, shift.date)));
+        clearSelection();
+    }
+
     // ---------- Навигация по датам (стрелки ‹ ›, «Сегодня», «Месяц / Неделя») ----------
     //
     // Каждое действие меняет periodStart (и view), после чего загружаем смены нового периода.
@@ -287,6 +340,9 @@ export const useScheduleStore = defineStore('schedule', () => {
         setSelection,
         clearSelection,
         cellKey,
+        assignToSelected,
+        applyTemplate,
+        clearSelectedShifts,
         shiftAt,
         init,
         move,

@@ -25,3 +25,9 @@ export function shortRange(start: string, end: string): string {
     const short = (time: string) => (time.endsWith(':00') ? time.slice(0, 2) : time);
     return `${short(start)} - ${short(end)}`;
 }
+
+// Проверка времени в 24-часовом формате: "09:00", "23:59" — да; "24:00", "9:00", "12:60" — нет.
+// То же правило, что date_format:H:i в SyncShiftsRequest на бэкенде.
+export function isValidTime(time: string): boolean {
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+}

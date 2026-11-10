@@ -38,7 +38,7 @@ onMounted(() => store.init());
             </header>
 
             <div class="flex items-start gap-3">
-                <section class="min-w-0 flex-1 rounded-2xl bg-white p-3">
+                <section class="min-w-0 flex-1 overflow-hidden rounded-2xl bg-white p-3">
                     <!-- Есть выделенные ячейки → тёмная панель действий, иначе → поиск и навигация (как в макете) -->
                     <SelectionBar v-if="store.selectionSummary.cells > 0" />
                     <ScheduleToolbar v-else />
