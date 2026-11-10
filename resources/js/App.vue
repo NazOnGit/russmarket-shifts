@@ -7,7 +7,7 @@ import ScheduleGrid from './components/schedule/ScheduleGrid.vue';
 import ScheduleToolbar from './components/schedule/ScheduleToolbar.vue';
 import SelectionBar from './components/schedule/SelectionBar.vue';
 import TemplatesPanel from './components/schedule/TemplatesPanel.vue';
-import { onMounted } from 'vue';
+import { onBeforeUnmount, onMounted } from 'vue';
 import { useScheduleStore } from './stores/schedule';
 
 const store = useScheduleStore();
@@ -15,6 +15,16 @@ const store = useScheduleStore();
 // onMounted — «когда компонент появился на странице»: тогда и загружаем данные из API.
 // store.init() → три запроса к Laravel (сотрудники, шаблоны, смены недели) → данные в хранилище → таблица рисуется.
 onMounted(() => store.init());
+
+// Предупреждение браузера при закрытии вкладки или перезагрузке, если есть несохранённые изменения.
+// beforeunload — событие «страницу сейчас закроют»; preventDefault() заставляет браузер спросить пользователя.
+function warnBeforeLeaving(event: BeforeUnloadEvent): void {
+    if (store.isDirty) {
+        event.preventDefault();
+    }
+}
+onMounted(() => window.addEventListener('beforeunload', warnBeforeLeaving));
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeLeaving));
 </script>
 
 <template>
@@ -29,11 +39,39 @@ onMounted(() => store.init());
                 Графики смен
             </div>
 
-            <header class="mt-5 mb-5 flex items-center justify-between">
-                <h1 class="text-3xl">График</h1>
+            <header class="mt-5 mb-5 flex items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-3xl">График</h1>
+                    <!-- Статус периода. Стиль — Badge из UI-кита: синий = опубликовано, тёмный = черновик -->
+                    <span
+                        v-if="!store.loading || store.employees.length > 0"
+                        :class="['rounded-full px-3 py-0.5 text-sm text-white', store.isPublished && !store.isDirty ? 'bg-primary' : 'bg-dark']"
+                    >
+                        {{ store.isPublished && !store.isDirty ? 'Опубликовано' : 'Черновик' }}
+                    </span>
+                    <span v-if="store.isDirty" class="text-sm text-[#d97706]">● Есть несохранённые изменения</span>
+                </div>
+
+                <!-- «Сохранить» → store.save() → PUT /api/shifts.  «Опубликовать» → store.publish() → сохранить + POST /api/shifts/publish.
+                     :disabled — кнопка неактивна, пока идёт запрос; «Сохранить» — ещё и когда нечего сохранять. -->
                 <div class="flex gap-2 text-sm font-medium">
-                    <button type="button" class="h-11 rounded-lg bg-primary-soft px-4 text-primary">Опубликовать</button>
-                    <button type="button" class="h-11 rounded-lg bg-primary px-4 text-white">Сохранить</button>
+                    <button
+                        type="button"
+                        class="h-11 rounded-lg bg-primary-soft px-4 text-primary transition enabled:hover:bg-[#dde5fc] disabled:opacity-50"
+                        :disabled="store.saving"
+                        @click="store.publish()"
+                    >
+                        Опубликовать
+                    </button>
+                    <button
+                        type="button"
+                        class="h-11 rounded-lg bg-primary px-4 text-white transition enabled:hover:bg-[#4a6be6] disabled:opacity-50"
+                        :disabled="store.saving || !store.isDirty"
+                        :title="store.isDirty ? '' : 'Нет несохранённых изменений'"
+                        @click="store.save()"
+                    >
+                        {{ store.saving ? 'Сохранение…' : 'Сохранить' }}
+                    </button>
                 </div>
             </header>
 
@@ -53,5 +91,18 @@ onMounted(() => store.init());
                 <TemplatesPanel />
             </div>
         </main>
+
+        <!-- Короткое сообщение о результате: «Изменения сохранены», «Опубликовано смен: 8» или ошибка API.
+             Исчезает само через несколько секунд (таймер в store.showNotice). -->
+        <div
+            v-if="store.notice"
+            :class="[
+                'fixed right-6 bottom-6 z-50 rounded-xl px-4 py-3 text-sm text-white shadow-lg',
+                store.notice.type === 'success' ? 'bg-dark' : 'bg-danger',
+            ]"
+            role="status"
+        >
+            {{ store.notice.text }}
+        </div>
     </div>
 </template>

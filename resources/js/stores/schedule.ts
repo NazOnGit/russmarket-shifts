@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref, watch } from 'vue';
-import { api } from '../api';
-import type { Employee, Shift, ShiftTemplate } from '../types';
+import { api, ApiError } from '../api';
+import type { Employee, Shift, ShiftFromApi, ShiftTemplate } from '../types';
 import { addDays, addMonths, daysBetween, endOfMonth, monthLabel, startOfMonth, startOfWeek, today, weekLabel } from '../utils/dates';
 import { hoursBetween } from '../utils/time';
 
@@ -42,6 +42,16 @@ export const useScheduleStore = defineStore('schedule', () => {
 
     const loading = ref(false);
     const error = ref<string | null>(null);
+
+    // ---------- Сохранение (этап 2.6) ----------
+    // savedSnapshot — «снимок» смен в том виде, в каком они лежат в базе (после загрузки или сохранения).
+    // Если текущие смены отличаются от снимка — есть несохранённые изменения.
+    const savedSnapshot = ref('[]');
+    // Опубликован ли видимый период: все его смены имеют is_published = true
+    const isPublished = ref(false);
+    const saving = ref(false);
+    // Короткое сообщение внизу экрана: «Сохранено», «Опубликовано: 8 смен», текст ошибки
+    const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 
     // ---------- Вычисляемые значения ----------
     // Последний день периода.
@@ -140,9 +150,32 @@ export const useScheduleStore = defineStore('schedule', () => {
         return { cells: selectedCells.value.size, employees: employeeIds.size, days: dates.size };
     });
 
+    // Есть ли несохранённые изменения.
+    // Сравниваем отсортированные смены с «снимком» из базы. Сортировка нужна, чтобы порядок в массиве
+    // не влиял: если поставить смену и тут же «Очистить», изменений снова нет.
+    const isDirty = computed(() => snapshotOf(shifts.value) !== savedSnapshot.value);
+
     const templateById = computed(() => new Map(templates.value.map((template) => [template.id, template])));
 
     // ---------- Действия ----------
+    function snapshotOf(list: Shift[]): string {
+        return JSON.stringify([...list].sort((a, b) => cellKey(a.employee_id, a.date).localeCompare(cellKey(b.employee_id, b.date))));
+    }
+
+    // Ответ API → смены для хранилища: оставляем только поля, которые отправим обратно при сохранении,
+    // и запоминаем этот набор как «сохранённый».
+    function acceptFromServer(loaded: ShiftFromApi[]): void {
+        shifts.value = loaded.map(({ employee_id, date, start_time, end_time, shift_template_id }) => ({
+            employee_id,
+            date,
+            start_time,
+            end_time,
+            shift_template_id,
+        }));
+        savedSnapshot.value = snapshotOf(shifts.value);
+        isPublished.value = loaded.length > 0 && loaded.every((shift) => shift.is_published);
+    }
+
     function normalize(text: string): string {
         return text.toLowerCase().replace(/ё/g, 'е');
     }
@@ -258,6 +291,9 @@ export const useScheduleStore = defineStore('schedule', () => {
 
     // direction: -1 = назад (‹), 1 = вперёд (›)
     async function move(direction: -1 | 1): Promise<void> {
+        if (!confirmLeave()) {
+            return;
+        }
         periodStart.value = view.value === 'week'
             ? addDays(periodStart.value, 7 * direction)
             : addMonths(periodStart.value, direction);
@@ -265,6 +301,9 @@ export const useScheduleStore = defineStore('schedule', () => {
     }
 
     async function goToday(): Promise<void> {
+        if (!confirmLeave()) {
+            return;
+        }
         periodStart.value = view.value === 'week' ? startOfWeek(today()) : startOfMonth(today());
         await run(loadShifts);
     }
@@ -272,7 +311,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     // Переключатель «Месяц / Неделя». Остаёмся рядом с той же датой:
     // неделя 9–15 ноября → месяц «Ноябрь»; месяц «Ноябрь» → первая неделя ноября (с понедельника).
     async function setView(newView: 'week' | 'month'): Promise<void> {
-        if (newView === view.value) {
+        if (newView === view.value || !confirmLeave()) {
             return;
         }
         view.value = newView;
@@ -293,14 +332,68 @@ export const useScheduleStore = defineStore('schedule', () => {
         if (requestNumber !== latestRequest) {
             return; // пришёл устаревший ответ — игнорируем
         }
-        // Оставляем только поля, которые отправим обратно при сохранении
-        shifts.value = loaded.map(({ employee_id, date, start_time, end_time, shift_template_id }) => ({
-            employee_id,
-            date,
-            start_time,
-            end_time,
-            shift_template_id,
-        }));
+        acceptFromServer(loaded);
+    }
+
+    // ---------- «Сохранить» и «Опубликовать» ----------
+    //
+    // «Сохранить»: PUT /api/shifts с ВСЕМИ сменами видимого периода.
+    // Путь: кнопка в App.vue → store.save() → api.saveShifts(from, to, shifts)
+    //   → Laravel: SyncShiftsRequest проверяет → ShiftController::sync() заменяет смены периода в транзакции
+    //   → в ответ — смены из базы → acceptFromServer() → снимок обновлён → isDirty = false.
+    // Если Laravel ответил 422 (ошибка валидации) — показываем первую ошибку, черновик в браузере не теряется.
+    async function save(): Promise<boolean> {
+        saving.value = true;
+        try {
+            const saved = await api.saveShifts(periodStart.value, periodEnd.value, shifts.value);
+            acceptFromServer(saved);
+            showNotice('success', 'Изменения сохранены');
+            return true;
+        } catch (e) {
+            showNotice('error', 'Не удалось сохранить: ' + errorText(e));
+            return false;
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    // «Опубликовать»: сначала сохраняем несохранённое, затем POST /api/shifts/publish за период.
+    async function publish(): Promise<void> {
+        if (isDirty.value && !(await save())) {
+            return; // сохранение не удалось — не публикуем
+        }
+        saving.value = true;
+        try {
+            const count = await api.publish(periodStart.value, periodEnd.value);
+            isPublished.value = count > 0;
+            showNotice('success', count > 0 ? `Опубликовано смен: ${count}` : 'В этом периоде нет смен для публикации');
+        } catch (e) {
+            showNotice('error', 'Не удалось опубликовать: ' + errorText(e));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    // Первая ошибка валидации Laravel ("shifts.0.end_time": ["..."]) или общий текст
+    function errorText(e: unknown): string {
+        if (e instanceof ApiError) {
+            const first = Object.values(e.errors)[0]?.[0];
+            return first ?? e.message;
+        }
+        return e instanceof Error ? e.message : 'неизвестная ошибка';
+    }
+
+    let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+    function showNotice(type: 'success' | 'error', text: string): void {
+        notice.value = { type, text };
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(() => (notice.value = null), type === 'error' ? 6000 : 3000);
+    }
+
+    // Перед сменой недели/месяца: если есть несохранённые изменения — спросить.
+    // Без этого смены, назначенные на этой неделе, молча пропали бы при переходе.
+    function confirmLeave(): boolean {
+        return !isDirty.value || window.confirm('Есть несохранённые изменения. Перейти без сохранения?');
     }
 
     // Обёртка: флаг загрузки и понятная ошибка вместо «упавшей» страницы
@@ -328,6 +421,10 @@ export const useScheduleStore = defineStore('schedule', () => {
         visibleEmployees,
         loading,
         error,
+        isDirty,
+        isPublished,
+        saving,
+        notice,
         days,
         coverageByDate,
         hoursByEmployee,
@@ -345,6 +442,8 @@ export const useScheduleStore = defineStore('schedule', () => {
         clearSelectedShifts,
         shiftAt,
         init,
+        save,
+        publish,
         move,
         goToday,
         setView,
